@@ -99,8 +99,32 @@ func fillInfo(customer Customer, emailTemplate EmailTemplate) (emailInfo EmailTe
 	return
 }
 
-func sendEmail(emailInfo EmailTemplate) (err error) {
+func sendEmail(path string, customer Customer, emailInfo EmailTemplate) (err error) {
 	fmt.Printf("emailInfo: %+v\n", emailInfo)
+
+	// if the directory does not exist, it will be created first
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			os.Mkdir(path, 0755)
+		} else {
+			log.Println(err)
+		}
+	}
+
+	bf := bytes.NewBuffer([]byte{})
+	jsonEncoder := json.NewEncoder(bf)
+	jsonEncoder.SetIndent("", "\t")
+	jsonEncoder.SetEscapeHTML(false)
+	jsonEncoder.Encode(emailInfo)
+	// https://stackoverflow.com/questions/24656624/how-to-display-a-character-instead-of-ascii
+	// https://developpaper.com/the-solution-of-escaping-special-html-characters-in-golang-json-marshal/
+
+	fileName := fmt.Sprintf("%s%s-%s-%s.json", path, customer.TITLE, customer.FIRST_NAME, customer.LAST_NAME)
+
+	err = ioutil.WriteFile(fileName, bf.Bytes(), 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return
 }
@@ -114,7 +138,7 @@ func main() {
 
 	for _, customer := range customers {
 		emailInfo, _ := fillInfo(customer, emailTemplate)
-		sendEmail(emailInfo)
+		sendEmail("output_emails/", customer, emailInfo)
 	}
 
 }
