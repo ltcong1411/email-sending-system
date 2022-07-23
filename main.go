@@ -11,8 +11,22 @@ import (
 	"net/mail"
 	"os"
 	"strings"
-	"sync"
 	"time"
+)
+
+var (
+	smtpHost       = os.Getenv("SMTP_EMAIL_HOST")
+	smtpUsername   = os.Getenv("SMTP_EMAiL_USERNAME")
+	smtpPassword   = os.Getenv("SMTP_EMAIL_PASSWORD")
+	smtpPortNumber = os.Getenv("SMTP_EMAIL_PORT")
+
+	apiSend  = os.Getenv("API_SEND")
+	apiToken = os.Getenv("API_TOKEN")
+
+	emailTemplateFile = os.Args[1]
+	customerFile      = os.Args[2]
+	outputEmailPath   = os.Args[3]
+	errorFile         = os.Args[4]
 )
 
 func validEmail(email string) bool {
@@ -72,17 +86,29 @@ func importCustumers(file string) (customers []Customer) {
 
 // saveCustomerErrorToFile function which store customer that doesn’t have an email address or invalid email address
 func saveCustomerErrorToFile(customerErrors []Customer) {
-	file, err := os.Create("errors.csv")
-	if err != nil {
-		log.Fatalln("Could not create file", err)
+	var data [][]string
+
+	// check file exist
+	f, err := os.OpenFile(errorFile, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	if err != nil && os.IsExist(err) {
+		log.Fatal(err)
 	}
 
-	defer file.Close()
+	if os.IsNotExist(err) {
+		// create file
+		f, err = os.Create(errorFile)
+		if err != nil {
+			log.Fatalln("Could not create file", err)
+		}
 
-	w := csv.NewWriter(file)
+		data = [][]string{{"TITLE", "FIRST_NAME", "LAST_NAME", "EMAIL"}}
+	}
+
+	defer f.Close()
+
+	w := csv.NewWriter(f)
 	defer w.Flush()
 
-	var data = [][]string{{"TITLE", "FIRST_NAME", "LAST_NAME", "EMAIL"}}
 	for _, customerError := range customerErrors {
 		row := []string{customerError.TITLE, customerError.FIRST_NAME, customerError.LAST_NAME, customerError.EMAIL}
 		data = append(data, row)
@@ -153,11 +179,11 @@ func fillInfoToEmailTemplate(customer Customer, emailTemplate Email) (emailInfo 
 	return
 }
 
-func sendEmail(path string, customer Customer, emailInfo Email) (err error) {
+func saveEmailInfoToFile(emailInfo Email) (err error) {
 	// if the directory does not exist, it will be created first
-	if _, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(outputEmailPath); err != nil {
 		if os.IsNotExist(err) {
-			os.Mkdir(path, 0755)
+			os.Mkdir(outputEmailPath, 0755)
 		} else {
 			return err
 		}
@@ -171,7 +197,7 @@ func sendEmail(path string, customer Customer, emailInfo Email) (err error) {
 	// https://stackoverflow.com/questions/24656624/how-to-display-a-character-instead-of-ascii
 	// https://developpaper.com/the-solution-of-escaping-special-html-characters-in-golang-json-marshal/
 
-	fileName := fmt.Sprintf("%s%s-%s-%s.json", path, customer.TITLE, customer.FIRST_NAME, customer.LAST_NAME)
+	fileName := fmt.Sprintf("%s%s.json", outputEmailPath, emailInfo.To)
 
 	err = ioutil.WriteFile(fileName, bf.Bytes(), 0644)
 	if err != nil {
@@ -181,31 +207,50 @@ func sendEmail(path string, customer Customer, emailInfo Email) (err error) {
 	return
 }
 
-func main() {
-	customers := importCustumers("customers.csv")
-	emailTemplate := importEmailTemplate("email_template.json")
+func sendEmailViaAPI(emailInfo Email) (err error) {
+	fmt.Printf("send email via API - email address: %v - api: %v - token: %v\n", emailInfo.To, apiSend, apiToken)
+	return
+}
 
-	var wg sync.WaitGroup
-	wg.Add(len(customers))
+func sendEmailViaSMTP(emailInfo Email) (err error) {
+	fmt.Printf("send email via SMTP - email address: %v - host: %v - username: %v - password: %v - port: %v\n", emailInfo.To, smtpHost, smtpUsername, smtpPassword, smtpPortNumber)
+	return
+}
 
-	for _, customer := range customers {
-		go func(customer Customer) {
-			defer wg.Done()
-			emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
-			if err != nil {
-				fmt.Printf("Could not fill Information To Email Template - email address: %v - err: %v\n", customer.EMAIL, err)
-				return
-			}
-
-			err = sendEmail("output_emails/", customer, emailInfo)
-			if err != nil {
-				fmt.Printf("Could not send email - email address: %v - err: %v\n", customer.EMAIL, err)
-				return
-			}
-		}(customer)
-
+func sendEmail(emailInfo Email) (err error) {
+	sendEmailVia := "file"
+	if len(os.Args) > 5 {
+		sendEmailVia = os.Args[5]
 	}
 
-	wg.Wait()
+	switch sendEmailVia {
+	case "api":
+		err = sendEmailViaAPI(emailInfo)
+	case "smtp":
+		err = sendEmailViaSMTP(emailInfo)
+	default:
+		err = saveEmailInfoToFile(emailInfo)
+	}
+
+	return
+}
+
+func main() {
+	customers := importCustumers(customerFile)
+	emailTemplate := importEmailTemplate(emailTemplateFile)
+
+	for _, customer := range customers {
+		emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
+		if err != nil {
+			fmt.Printf("Could not fill Information To Email Template - email address: %v - err: %v\n", customer.EMAIL, err)
+			return
+		}
+
+		err = sendEmail(emailInfo)
+		if err != nil {
+			fmt.Printf("Could not send email - email address: %v - err: %v\n", customer.EMAIL, err)
+			return
+		}
+	}
 
 }
