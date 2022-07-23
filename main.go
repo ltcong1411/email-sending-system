@@ -11,6 +11,7 @@ import (
 	"net/mail"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -184,14 +185,27 @@ func main() {
 	customers := importCustumers("customers.csv")
 	emailTemplate := importEmailTemplate("email_template.json")
 
-	for _, customer := range customers {
-		emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
-		if err != nil {
-			fmt.Printf("Could not fill Information To Email Template - email: %v - err: %v\n", customer.EMAIL, err)
-			continue
-		}
+	var wg sync.WaitGroup
+	wg.Add(len(customers))
 
-		sendEmail("output_emails/", customer, emailInfo)
+	for _, customer := range customers {
+		go func(customer Customer) {
+			defer wg.Done()
+			emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
+			if err != nil {
+				fmt.Printf("Could not fill Information To Email Template - email address: %v - err: %v\n", customer.EMAIL, err)
+				return
+			}
+
+			err = sendEmail("output_emails/", customer, emailInfo)
+			if err != nil {
+				fmt.Printf("Could not send email - email address: %v - err: %v\n", customer.EMAIL, err)
+				return
+			}
+		}(customer)
+
 	}
+
+	wg.Wait()
 
 }
