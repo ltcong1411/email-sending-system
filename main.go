@@ -44,8 +44,6 @@ type Customer struct {
 
 // importCustumers function which import list of customer is stored in a CSV file
 func importCustumers(file string) (customers []Customer) {
-	var customerErrors []Customer
-
 	csvFile, err := os.Open(file)
 	if err != nil {
 		log.Fatalln("Could not open file", err)
@@ -71,27 +69,21 @@ func importCustumers(file string) (customers []Customer) {
 			EMAIL:      line[3],
 		}
 
-		// check valid of this email address
-		if customer.EMAIL != "" && validEmail(customer.EMAIL) {
-			customers = append(customers, customer)
-		} else {
-			customerErrors = append(customerErrors, customer)
-		}
+		customers = append(customers, customer)
 	}
-
-	saveCustomerErrorToFile(customerErrors)
 
 	return
 }
 
 // saveCustomerErrorToFile function which store customer that doesn’t have an email address or invalid email address
-func saveCustomerErrorToFile(customerErrors []Customer) {
+func saveCustomerErrorToFile(customerError Customer) (err error) {
 	var data [][]string
 
 	// check file exist
 	f, err := os.OpenFile(errorFile, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil && os.IsExist(err) {
 		log.Fatal(err)
+		return
 	}
 
 	if os.IsNotExist(err) {
@@ -109,15 +101,16 @@ func saveCustomerErrorToFile(customerErrors []Customer) {
 	w := csv.NewWriter(f)
 	defer w.Flush()
 
-	for _, customerError := range customerErrors {
-		row := []string{customerError.TITLE, customerError.FIRST_NAME, customerError.LAST_NAME, customerError.EMAIL}
-		data = append(data, row)
-	}
+	row := []string{customerError.TITLE, customerError.FIRST_NAME, customerError.LAST_NAME, customerError.EMAIL}
+	data = append(data, row)
 
 	err = w.WriteAll(data)
 	if err != nil {
 		log.Fatalln("Could not write to file", err)
+		return
 	}
+
+	return
 }
 
 // Email struct which contains the information of that email
@@ -235,22 +228,57 @@ func sendEmail(emailInfo Email) (err error) {
 	return
 }
 
-func main() {
-	customers := importCustumers(customerFile)
-	emailTemplate := importEmailTemplate(emailTemplateFile)
+func prepareAndSendEmail(customers <-chan Customer, emailTemplate Email, results chan<- error) {
+	for customer := range customers {
+		// check valid of this email address
+		if customer.EMAIL == "" || !validEmail(customer.EMAIL) {
+			err := saveCustomerErrorToFile(customer)
+			if err != nil {
+				fmt.Printf("saveCustomerErrorToFile failed - customer: %+v - err: %v\n", customer, err)
+				results <- err
+				return
+			}
 
-	for _, customer := range customers {
+			results <- nil
+			return
+		}
+
 		emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
 		if err != nil {
 			fmt.Printf("Could not fill Information To Email Template - email address: %v - err: %v\n", customer.EMAIL, err)
+			results <- err
 			return
 		}
 
 		err = sendEmail(emailInfo)
 		if err != nil {
 			fmt.Printf("Could not send email - email address: %v - err: %v\n", customer.EMAIL, err)
+			results <- err
 			return
 		}
+
+		results <- nil
 	}
 
+}
+
+func main() {
+	customers := importCustumers(customerFile)
+	emailTemplate := importEmailTemplate(emailTemplateFile)
+
+	customerChan := make(chan Customer, len(customers))
+	result := make(chan error, len(customers))
+
+	for w := 1; w <= 3; w++ {
+		go prepareAndSendEmail(customerChan, emailTemplate, result)
+	}
+
+	for _, customer := range customers {
+		customerChan <- customer
+	}
+	close(customerChan)
+
+	for i := 0; i < len(customers); i++ {
+		<-result
+	}
 }
