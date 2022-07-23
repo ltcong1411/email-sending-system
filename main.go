@@ -8,11 +8,18 @@ import (
 	"html/template"
 	"io/ioutil"
 	"log"
+	"net/mail"
 	"os"
 	"strings"
 	"time"
 )
 
+func validEmail(email string) bool {
+	_, err := mail.ParseAddress(email)
+	return err == nil
+}
+
+// Customer struct which contains the information of customer
 type Customer struct {
 	TITLE      string
 	FIRST_NAME string
@@ -20,19 +27,24 @@ type Customer struct {
 	EMAIL      string
 }
 
-func getCustumers(customerPath string) (customers []Customer, err error) {
-	csvFile, err := os.Open(customerPath)
+// importCustumers function which import list of customer is stored in a CSV file
+func importCustumers(file string) (customers []Customer) {
+	var customerErrors []Customer
+
+	csvFile, err := os.Open(file)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalln("Could not open file", err)
 	}
 
 	defer csvFile.Close()
 
 	csvLines, err := csv.NewReader(csvFile).ReadAll()
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalln("Could not read CSV", err)
 	}
+
 	for i, line := range csvLines {
+		// skip first row
 		if i == 0 {
 			continue
 		}
@@ -43,13 +55,46 @@ func getCustumers(customerPath string) (customers []Customer, err error) {
 			LAST_NAME:  line[2],
 			EMAIL:      line[3],
 		}
-		customers = append(customers, customer)
+
+		// check valid of this email address
+		if customer.EMAIL != "" && validEmail(customer.EMAIL) {
+			customers = append(customers, customer)
+		} else {
+			customerErrors = append(customerErrors, customer)
+		}
 	}
+
+	saveCustomerErrorToFile(customerErrors)
 
 	return
 }
 
-type EmailTemplate struct {
+// saveCustomerErrorToFile function which store customer that doesn’t have an email address or invalid email address
+func saveCustomerErrorToFile(customerErrors []Customer) {
+	file, err := os.Create("errors.csv")
+	if err != nil {
+		log.Fatalln("Could not create file", err)
+	}
+
+	defer file.Close()
+
+	w := csv.NewWriter(file)
+	defer w.Flush()
+
+	var data = [][]string{{"TITLE", "FIRST_NAME", "LAST_NAME", "EMAIL"}}
+	for _, customerError := range customerErrors {
+		row := []string{customerError.TITLE, customerError.FIRST_NAME, customerError.LAST_NAME, customerError.EMAIL}
+		data = append(data, row)
+	}
+
+	err = w.WriteAll(data)
+	if err != nil {
+		log.Fatalln("Could not write to file", err)
+	}
+}
+
+// Email struct which contains the information of that email
+type Email struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Subject  string `json:"subject"`
@@ -57,27 +102,35 @@ type EmailTemplate struct {
 	Body     string `json:"body"`
 }
 
-func getEmailTemplate(emailTemplatePath string) (emailTemplate EmailTemplate, err error) {
+// importEmailTemplate function which import the email template is stored in a JSON file
+func importEmailTemplate(file string) (emailTemplate Email) {
 	// Open our jsonFile
-	jsonFile, err := os.Open(emailTemplatePath)
-	// if we os.Open returns an error then handle it
+	jsonFile, err := os.Open(file)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 	// defer the closing of our jsonFile so that we can parse it later on
 	defer jsonFile.Close()
 
+	// read our opened jsonFile as a byte array
 	byteValue, _ := ioutil.ReadAll(jsonFile)
 
 	// we unmarshal our byteArray which contains our
-	// jsonFile's content into 'users' which we defined above
-	json.Unmarshal(byteValue, &emailTemplate)
+	// jsonFile's content into 'emailTemplate' which we defined above
+	err = json.Unmarshal(byteValue, &emailTemplate)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return
 }
 
-func fillInfo(customer Customer, emailTemplate EmailTemplate) (emailInfo EmailTemplate, err error) {
+// fillInfoToEmailTemplate function which filled customer information with email template
+func fillInfoToEmailTemplate(customer Customer, emailTemplate Email) (emailInfo Email, err error) {
+	// replace {{TODAY}} in the email template with the date on which it runs with the format is "31 Dec 2020"
 	body := strings.ReplaceAll(emailTemplate.Body, `{{TODAY}}`, time.Now().Format("02 January 2006"))
+
+	// replace `{{` in the email template to `{{.` to match the syntax of html/template library
 	body = strings.ReplaceAll(body, `{{`, `{{.`)
 
 	tmp := template.New("simple")
@@ -99,15 +152,13 @@ func fillInfo(customer Customer, emailTemplate EmailTemplate) (emailInfo EmailTe
 	return
 }
 
-func sendEmail(path string, customer Customer, emailInfo EmailTemplate) (err error) {
-	fmt.Printf("emailInfo: %+v\n", emailInfo)
-
+func sendEmail(path string, customer Customer, emailInfo Email) (err error) {
 	// if the directory does not exist, it will be created first
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			os.Mkdir(path, 0755)
 		} else {
-			log.Println(err)
+			return err
 		}
 	}
 
@@ -123,21 +174,23 @@ func sendEmail(path string, customer Customer, emailInfo EmailTemplate) (err err
 
 	err = ioutil.WriteFile(fileName, bf.Bytes(), 0644)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
 	return
 }
 
 func main() {
-	customers, _ := getCustumers("customers.csv")
-	fmt.Printf("customers: %+v\n", customers)
-
-	emailTemplate, _ := getEmailTemplate("email_template.json")
-	fmt.Printf("emailTemplate: %+v\n", emailTemplate)
+	customers := importCustumers("customers.csv")
+	emailTemplate := importEmailTemplate("email_template.json")
 
 	for _, customer := range customers {
-		emailInfo, _ := fillInfo(customer, emailTemplate)
+		emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
+		if err != nil {
+			fmt.Printf("Could not fill Information To Email Template - email: %v - err: %v\n", customer.EMAIL, err)
+			continue
+		}
+
 		sendEmail("output_emails/", customer, emailInfo)
 	}
 
