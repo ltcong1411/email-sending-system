@@ -5,9 +5,9 @@ Console application to send emails using a template
 * Create customer list stored in CSV file (**customer.csv**), which has the following format:
 ```
 TITLE,FIRST_NAME,LAST_NAME,EMAIL
+Mr,John,Smith,john.smith@example.com
+Mrs,Michelle,Smith,michelle.smith@example.com
 Mr,Cong,Le,ltcong1411@gmail.com
-Mrs,Thu,Vuong,vtathu32@gmail.com
-Mr,Danh,Le,ltdanh0805@gmail.com
 Mr,A,B,xyz
 Mrs,X,Y,
 ```
