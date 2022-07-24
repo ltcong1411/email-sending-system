@@ -1,7 +1,7 @@
 FROM golang:1.17-alpine3.15 as builder
 WORKDIR  /home/email-sending-system
-RUN go mod init
-RUN go mod vendor
+COPY go.mod ./
+RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o ./email-sending-system
 
