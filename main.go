@@ -23,10 +23,11 @@ var (
 	apiSend  = os.Getenv("API_SEND")
 	apiToken = os.Getenv("API_TOKEN")
 
-	emailTemplateFile = os.Args[1]
-	customerFile      = os.Args[2]
-	outputEmailPath   = os.Args[3]
-	errorFile         = os.Args[4]
+	emailTemplateFile = "email_template.json"
+	customerFile      = "customers.csv"
+	outputEmailPath   = "output_emails/"
+	errorFile         = "errors.csv"
+	sendEmailVia      = "file"
 )
 
 func validEmail(email string) bool {
@@ -76,11 +77,11 @@ func importCustumers(file string) (customers []Customer) {
 }
 
 // saveCustomerErrorToFile function which store customer that doesn’t have an email address or invalid email address
-func saveCustomerErrorToFile(customerError Customer) (err error) {
+func saveCustomerErrorToFile(customerError Customer, file string) (err error) {
 	var data [][]string
 
 	// check file exist
-	f, err := os.OpenFile(errorFile, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil && os.IsExist(err) {
 		log.Fatal(err)
 		return
@@ -88,7 +89,7 @@ func saveCustomerErrorToFile(customerError Customer) (err error) {
 
 	if os.IsNotExist(err) {
 		// create file
-		f, err = os.Create(errorFile)
+		f, err = os.Create(file)
 		if err != nil {
 			log.Fatalln("Could not create file", err)
 		}
@@ -123,7 +124,7 @@ type Email struct {
 }
 
 // importEmailTemplate function which import the email template is stored in a JSON file
-func importEmailTemplate(file string) (emailTemplate Email) {
+func importEmailTemplate(file string) (emailTemplate *Email) {
 	// Open our jsonFile
 	jsonFile, err := os.Open(file)
 	if err != nil {
@@ -153,16 +154,16 @@ func fillInfoToEmailTemplate(customer Customer, emailTemplate Email) (emailInfo 
 	// replace `{{` in the email template to `{{.` to match the syntax of html/template library
 	body = strings.ReplaceAll(body, `{{`, `{{.`)
 
-	tmp := template.New("simple")
+	tmp := template.New("email-sending-system")
 	tmp, err = tmp.Parse(body)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
 	var b bytes.Buffer
 	err = tmp.Execute(&b, &customer)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
 	emailInfo = emailTemplate
@@ -210,34 +211,17 @@ func sendEmailViaSMTP(emailInfo Email) (err error) {
 	return
 }
 
-func sendEmail(emailInfo Email) (err error) {
-	sendEmailVia := "file"
-	if len(os.Args) > 5 {
-		sendEmailVia = os.Args[5]
-	}
-
-	switch sendEmailVia {
-	case "api":
-		err = sendEmailViaAPI(emailInfo)
-	case "smtp":
-		err = sendEmailViaSMTP(emailInfo)
-	default:
-		err = saveEmailInfoToFile(emailInfo)
-	}
-
-	return
-}
-
 func prepareAndSendEmail(customers <-chan Customer, emailTemplate Email, results chan<- error) {
 	for customer := range customers {
 		// check valid of this email address
 		if customer.EMAIL == "" || !validEmail(customer.EMAIL) {
-			err := saveCustomerErrorToFile(customer)
+			err := saveCustomerErrorToFile(customer, errorFile)
 			if err != nil {
-				fmt.Printf("saveCustomerErrorToFile failed - customer: %+v - err: %v\n", customer, err)
-				results <- err
+				results <- fmt.Errorf("saveCustomerErrorToFile failed - customer: %+v - err: %v", customer, err)
 				return
 			}
+
+			fmt.Printf("can't send email to %v-%v-%v\n", customer.TITLE, customer.FIRST_NAME, customer.LAST_NAME)
 
 			results <- nil
 			return
@@ -245,40 +229,81 @@ func prepareAndSendEmail(customers <-chan Customer, emailTemplate Email, results
 
 		emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
 		if err != nil {
-			fmt.Printf("Could not fill Information To Email Template - email address: %v - err: %v\n", customer.EMAIL, err)
-			results <- err
+			results <- fmt.Errorf("could not fill information to email template - email address: %v - err: %v", customer.EMAIL, err)
 			return
 		}
 
-		err = sendEmail(emailInfo)
+		switch sendEmailVia {
+		case "api":
+			err = sendEmailViaAPI(emailInfo)
+		case "smtp":
+			err = sendEmailViaSMTP(emailInfo)
+		default:
+			err = saveEmailInfoToFile(emailInfo)
+		}
+
 		if err != nil {
-			fmt.Printf("Could not send email - email address: %v - err: %v\n", customer.EMAIL, err)
-			results <- err
+			results <- fmt.Errorf("could not send email - email address: %v - err: %v", customer.EMAIL, err)
 			return
 		}
+
+		fmt.Printf("sent an email to: %v-%v-%v with email address: %v\n", customer.TITLE, customer.FIRST_NAME, customer.LAST_NAME, customer.EMAIL)
 
 		results <- nil
 	}
 
 }
 
-func main() {
-	customers := importCustumers(customerFile)
-	emailTemplate := importEmailTemplate(emailTemplateFile)
-
+func sendEmail(customers []Customer, emailTemplate Email) {
 	customerChan := make(chan Customer, len(customers))
-	result := make(chan error, len(customers))
+	results := make(chan error, len(customers))
 
+	// start up 3 workers to run prepareAndSendEmail function
 	for w := 1; w <= 3; w++ {
-		go prepareAndSendEmail(customerChan, emailTemplate, result)
+		go prepareAndSendEmail(customerChan, emailTemplate, results)
 	}
 
+	// send customer information to customer channel
 	for _, customer := range customers {
 		customerChan <- customer
 	}
 	close(customerChan)
 
 	for i := 0; i < len(customers); i++ {
-		<-result
+		err := <-results
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
+}
+
+func main() {
+	// can use "flag" to manage the command-line arguments
+	if len(os.Args) >= 5 {
+		emailTemplateFile = os.Args[1]
+		customerFile = os.Args[2]
+		outputEmailPath = os.Args[3]
+		errorFile = os.Args[4]
+
+		// check the conditions for sending email via
+		if len(os.Args) >= 6 {
+			sendEmailVia = os.Args[5]
+		}
+	} else {
+		log.Fatal("You need to enter more information about the path to the email template file, the customer list, the email output folder, the error customer list.\nFor example: go run main.go email_template.json customers.csv output_emails/ errors.csv")
+	}
+
+	customers := importCustumers(customerFile)
+	if len(customers) == 0 {
+		fmt.Println("empty customer list, please check again")
+		return
+	}
+
+	emailTemplate := importEmailTemplate(emailTemplateFile)
+	if emailTemplate == nil {
+		fmt.Println("no email template, please check again")
+		return
+	}
+
+	sendEmail(customers, *emailTemplate)
 }
