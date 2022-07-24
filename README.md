@@ -1,6 +1,5 @@
 # Email-Sending-CLI
-
-
+Console application to send emails using a template
 
 ## Usage
 * Create customer list stored in CSV file (**customer.csv**), which has the following format:
@@ -10,6 +9,7 @@ Mr,Cong,Le,ltcong1411@gmail.com
 Mrs,Thu,Vuong,vtathu32@gmail.com
 Mr,Danh,Le,ltdanh0805@gmail.com
 Mr,A,B,xyz
+Mrs,X,Y,
 ```
 
 * Create email template stored in JSON file (**email_template.json**), which has the following format:
@@ -23,7 +23,19 @@ Mr,A,B,xyz
 }
 ```
 
-* Run
+* Run application
 ```
-go run main.go email_template.json customers.csv output_emails/ errors.csv
+go run main.go /path/to/email_template.json /path/to/customers.csv /path/to/output_emails/ /path/to/errors.csv
+```
+
+* Run application with the built file
+```
+go build
+email-sending-system /path/to/email_template.json /path/to/customers.csv /path/to/output_emails/ /path/to/errors.csv
+```
+
+* Run application with docker
+```
+docker build -t email-sending-system .
+docker run email-sending-system /path/to/email_template.json /path/to/customers.csv /path/to/output_emails/ /path/to/errors.csv
 ```
