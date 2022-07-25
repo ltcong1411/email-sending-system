@@ -7,7 +7,7 @@ Console application to send emails using a template
 go test --cover
 ```
 
-* Create customer list stored in CSV file (**customer.csv**), which has the following format:
+* Create customer list stored in CSV file (**customers.csv**), which has the following format:
 ```
 TITLE,FIRST_NAME,LAST_NAME,EMAIL
 Mr,John,Smith,john.smith@example.com
@@ -32,11 +32,15 @@ Mrs,X,Y,
 ```
 go run main.go /path/to/email_template.json /path/to/customers.csv /path/to/output_emails/ /path/to/errors.csv
 ```
+***/path/to/email_template.json*** : the path to email template file
+***/path/to/customers.csv*** : thr path to customer list file
+***/path/to/output_emails/*** : the path to path to folder where emails are saved
+***/path/to/errors.csv*** : the path to the file that stores the customer information has the wrong email address
 
 * Run application with the built file
 ```
 go build
-email-sending-system /path/to/email_template.json /path/to/customers.csv /path/to/output_emails/ /path/to/errors.csv
+./email-sending-system /path/to/email_template.json /path/to/customers.csv /path/to/output_emails/ /path/to/errors.csv
 ```
 
 * Run application with docker
