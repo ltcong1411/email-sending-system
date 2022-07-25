@@ -2,6 +2,11 @@
 Console application to send emails using a template
 
 ## Usage
+* Run test application
+```
+go test --cover
+```
+
 * Create customer list stored in CSV file (**customer.csv**), which has the following format:
 ```
 TITLE,FIRST_NAME,LAST_NAME,EMAIL

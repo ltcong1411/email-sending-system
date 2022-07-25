@@ -45,9 +45,9 @@ type testImportCustumers struct {
 func TestImportCustumers(t *testing.T) {
 	tests := []testImportCustumers{
 		{
-			name:                   "There are 4 customers on the list",
+			name:                   "There are 5 customers on the list",
 			file:                   "./testdata/customers.csv",
-			lenOfCustomersExpected: 4,
+			lenOfCustomersExpected: 5,
 		},
 	}
 
