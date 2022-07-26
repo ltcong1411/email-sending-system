@@ -83,7 +83,6 @@ func saveCustomerErrorToFile(customerError Customer, file string) (err error) {
 	// check file exist
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil && os.IsExist(err) {
-		log.Fatal(err)
 		return
 	}
 
@@ -91,7 +90,7 @@ func saveCustomerErrorToFile(customerError Customer, file string) (err error) {
 		// create file
 		f, err = os.Create(file)
 		if err != nil {
-			log.Fatalln("Could not create file", err)
+			return
 		}
 
 		data = [][]string{{"TITLE", "FIRST_NAME", "LAST_NAME", "EMAIL"}}
@@ -107,7 +106,6 @@ func saveCustomerErrorToFile(customerError Customer, file string) (err error) {
 
 	err = w.WriteAll(data)
 	if err != nil {
-		log.Fatalln("Could not write to file", err)
 		return
 	}
 
@@ -188,8 +186,6 @@ func saveEmailInfoToFile(emailInfo Email) (err error) {
 	jsonEncoder.SetIndent("", "\t")
 	jsonEncoder.SetEscapeHTML(false)
 	jsonEncoder.Encode(emailInfo)
-	// https://stackoverflow.com/questions/24656624/how-to-display-a-character-instead-of-ascii
-	// https://developpaper.com/the-solution-of-escaping-special-html-characters-in-golang-json-marshal/
 
 	fileName := fmt.Sprintf("%s%s.json", outputEmailPath, emailInfo.To)
 
