@@ -5,12 +5,12 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"log"
 	"net/mail"
 	"os"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -171,6 +171,7 @@ func fillInfoToEmailTemplate(customer Customer, emailTemplate Email) (emailInfo 
 	return
 }
 
+// saveEmailInfoToFile function which save email parsed to file
 func saveEmailInfoToFile(emailInfo Email) (err error) {
 	// if the directory does not exist, it will be created first
 	if _, err := os.Stat(outputEmailPath); err != nil {
@@ -197,16 +198,19 @@ func saveEmailInfoToFile(emailInfo Email) (err error) {
 	return
 }
 
+// sendEmailViaAPI function which send email via REST API
 func sendEmailViaAPI(emailInfo Email) (err error) {
 	fmt.Printf("send email via API - email address: %v - api: %v - token: %v\n", emailInfo.To, apiSend, apiToken)
 	return
 }
 
+// sendEmailViaSMTP function which send email via SMTP
 func sendEmailViaSMTP(emailInfo Email) (err error) {
 	fmt.Printf("send email via SMTP - email address: %v - host: %v - username: %v - password: %v - port: %v\n", emailInfo.To, smtpHost, smtpUsername, smtpPassword, smtpPortNumber)
 	return
 }
 
+// prepareAndSendEmail function which validate email address, fill in and send emails
 func prepareAndSendEmail(customers <-chan Customer, emailTemplate Email, results chan<- error) {
 	for customer := range customers {
 		// check valid of this email address
@@ -223,12 +227,14 @@ func prepareAndSendEmail(customers <-chan Customer, emailTemplate Email, results
 			return
 		}
 
+		// fill customer information to email template
 		emailInfo, err := fillInfoToEmailTemplate(customer, emailTemplate)
 		if err != nil {
 			results <- fmt.Errorf("could not fill information to email template - email address: %v - err: %v", customer.EMAIL, err)
 			return
 		}
 
+		// send email
 		switch sendEmailVia {
 		case "api":
 			err = sendEmailViaAPI(emailInfo)
@@ -250,6 +256,7 @@ func prepareAndSendEmail(customers <-chan Customer, emailTemplate Email, results
 
 }
 
+// sendEmail function which create a worker pool to handle multiple email requests at the same time
 func sendEmail(customers []Customer, emailTemplate Email) {
 	customerChan := make(chan Customer, len(customers))
 	results := make(chan error, len(customers))
@@ -274,6 +281,7 @@ func sendEmail(customers []Customer, emailTemplate Email) {
 }
 
 func main() {
+	// receive info about email template file, customers file, output email and errors file from arguments
 	// can use "flag" to manage the command-line arguments
 	if len(os.Args) >= 5 {
 		emailTemplateFile = os.Args[1]
@@ -289,17 +297,20 @@ func main() {
 		log.Fatal("You need to enter more information about the path to the email template file, the customer list, the email output folder, the error customer list.\nFor example: go run main.go email_template.json customers.csv output_emails/ errors.csv")
 	}
 
+	// import customer list
 	customers := importCustumers(customerFile)
 	if len(customers) == 0 {
 		fmt.Println("empty customer list, please check again")
 		return
 	}
 
+	// import email template
 	emailTemplate := importEmailTemplate(emailTemplateFile)
 	if emailTemplate == nil {
 		fmt.Println("no email template, please check again")
 		return
 	}
 
+	// send email
 	sendEmail(customers, *emailTemplate)
 }
